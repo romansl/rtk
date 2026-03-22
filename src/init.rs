@@ -6,10 +6,6 @@ use tempfile::NamedTempFile;
 
 use crate::integrity;
 
-// Embedded hook scripts
-const REWRITE_HOOK_SH: &str = include_str!("../hooks/rtk-rewrite.sh");
-const REWRITE_HOOK_PY: &str = include_str!("../hooks/rtk-rewrite.py");
-
 // Embedded Cursor hook script (preToolUse format)
 const CURSOR_REWRITE_HOOK: &str = include_str!("../hooks/cursor-rtk-rewrite.sh");
 
@@ -297,87 +293,11 @@ fn prepare_hook_paths() -> Result<(PathBuf, PathBuf)> {
     Ok((hook_dir, hook_path))
 }
 
-/// Write hook file if missing or outdated, return true if changed
-#[cfg(unix)]
-fn ensure_hook_installed(hook_path: &Path, verbose: u8) -> Result<bool> {
-    let changed = if hook_path.exists() {
-        let existing = fs::read_to_string(hook_path)
-            .with_context(|| format!("Failed to read existing hook: {}", hook_path.display()))?;
-
-        if existing == REWRITE_HOOK_SH_SH {
-            if verbose > 0 {
-                eprintln!("Hook already up to date: {}", hook_path.display());
-            }
-            false
-        } else {
-            fs::write(hook_path, REWRITE_HOOK_SH_SH)
-                .with_context(|| format!("Failed to write hook to {}", hook_path.display()))?;
-            if verbose > 0 {
-                eprintln!("Updated hook: {}", hook_path.display());
-            }
-            true
-        }
-    } else {
-        fs::write(hook_path, REWRITE_HOOK_SH_SH)
-            .with_context(|| format!("Failed to write hook to {}", hook_path.display()))?;
-        if verbose > 0 {
-            eprintln!("Created hook: {}", hook_path.display());
-        }
-        true
-    };
-
-    // Set executable permissions
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(hook_path, fs::Permissions::from_mode(0o755))
-        .with_context(|| format!("Failed to set hook permissions: {}", hook_path.display()))?;
-
-    // Store SHA-256 hash for runtime integrity verification.
-    integrity::store_hash(hook_path)
-        .with_context(|| format!("Failed to store integrity hash for {}", hook_path.display()))?;
-    if verbose > 0 && changed {
-        eprintln!("Stored integrity hash for hook");
-    }
-
-    Ok(changed)
-}
-
-/// Write hook file if missing or outdated (Windows version)
-#[cfg(windows)]
-fn ensure_hook_installed(hook_path: &Path, verbose: u8) -> Result<bool> {
-    let changed = if hook_path.exists() {
-        let existing = fs::read_to_string(hook_path)
-            .with_context(|| format!("Failed to read existing hook: {}", hook_path.display()))?;
-
-        if existing == REWRITE_HOOK_PY {
-            if verbose > 0 {
-                eprintln!("Hook already up to date: {}", hook_path.display());
-            }
-            false
-        } else {
-            fs::write(hook_path, REWRITE_HOOK_PY)
-                .with_context(|| format!("Failed to write hook to {}", hook_path.display()))?;
-            if verbose > 0 {
-                eprintln!("Updated hook: {}", hook_path.display());
-            }
-            true
-        }
-    } else {
-        fs::write(hook_path, REWRITE_HOOK_PY)
-            .with_context(|| format!("Failed to write hook to {}", hook_path.display()))?;
-        if verbose > 0 {
-            eprintln!("Created hook: {}", hook_path.display());
-        }
-        true
-    };
-
-    // Store SHA-256 hash for runtime integrity verification.
-    integrity::store_hash(hook_path)
-        .with_context(|| format!("Failed to store integrity hash for {}", hook_path.display()))?;
-    if verbose > 0 && changed {
-        eprintln!("Stored integrity hash for hook");
-    }
-
-    Ok(changed)
+/// Hook is now built-in to rtk binary, no file installation needed.
+/// This function exists for API compatibility but returns false (no change).
+fn ensure_hook_installed(_hook_path: &Path, _verbose: u8) -> Result<bool> {
+    // Native hook is built into rtk - no external script needed
+    Ok(false)
 }
 
 /// Idempotent file write: create or update if content differs
@@ -465,21 +385,9 @@ fn prompt_user_consent(settings_path: &Path) -> Result<bool> {
 }
 
 /// Print manual instructions for settings.json patching
-fn print_manual_instructions(hook_path: &Path, include_opencode: bool) {
-    // Format hook command for platform
-    // On Windows: py "C:\\path\\to\\hook.py" (double backslashes for JSON)
-    // On Unix: /path/to/hook.sh
-    let hook_command_json = if cfg!(windows) {
-        // Use serde_json to properly escape the Windows path
-        let path_str = hook_path.display().to_string();
-        let full_command = format!("py \"{}\"", path_str);
-        serde_json::to_string(&full_command).unwrap_or_else(|_| format!("\"{}\"", full_command.replace('\\', "\\\\")))
-    } else {
-        serde_json::to_string(&hook_path.display().to_string()).unwrap_or_else(|_| format!("\"{}\"", hook_path.display()))
-    };
-
-    // Remove the outer quotes that serde_json adds
-    let hook_command = hook_command_json.trim_matches('"');
+fn print_manual_instructions(_hook_path: &Path, include_opencode: bool) {
+    // Use native rtk hook command (no external scripts needed)
+    let hook_command = "rtk hook claude";
 
     println!("\n  MANUAL STEP: Add this to ~/.claude/settings.json:");
     println!("  {{");
@@ -747,16 +655,8 @@ fn patch_settings_json(
     let claude_dir = resolve_claude_dir()?;
     let settings_path = claude_dir.join("settings.json");
 
-    // On Windows, use 'py' launcher to run the Python hook
-    // On Unix, the hook file is directly executable (shebang)
-    let hook_command = if cfg!(windows) {
-        format!("py \"{}\"", hook_path.display())
-    } else {
-        hook_path
-            .to_str()
-            .context("Hook path contains invalid UTF-8")?
-            .to_string()
-    };
+    // Use native rtk hook command (no external scripts needed)
+    let hook_command = "rtk hook claude".to_string();
 
     // Read or create settings.json
     let mut root = if settings_path.exists() {
@@ -899,7 +799,7 @@ fn insert_hook_entry(root: &mut serde_json::Value, hook_command: &str) {
 }
 
 /// Check if RTK hook is already present in settings.json
-/// Matches on rtk-rewrite.sh or rtk-rewrite.py substring to handle different path formats
+/// Checks for "rtk hook claude" command
 fn hook_already_present(root: &serde_json::Value, hook_command: &str) -> bool {
     let pre_tool_use_array = match root
         .get("hooks")
@@ -910,22 +810,14 @@ fn hook_already_present(root: &serde_json::Value, hook_command: &str) -> bool {
         None => return false,
     };
 
-    // Check for platform-specific hook extension
-    let hook_file = if cfg!(windows) {
-        "rtk-rewrite.py"
-    } else {
-        "rtk-rewrite.sh"
-    };
-
     pre_tool_use_array
         .iter()
         .filter_map(|entry| entry.get("hooks")?.as_array())
         .flatten()
         .filter_map(|hook| hook.get("command")?.as_str())
         .any(|cmd| {
-            // Exact match OR both contain the same rtk-rewrite file
-            cmd == hook_command
-                || (cmd.contains(hook_file) && hook_command.contains(hook_file))
+            // Exact match OR command contains "rtk hook"
+            cmd == hook_command || cmd.contains("rtk hook")
         })
 }
 
@@ -948,9 +840,9 @@ fn run_default_mode(
     let rtk_md_path = claude_dir.join("RTK.md");
     let claude_md_path = claude_dir.join("CLAUDE.md");
 
-    // 1. Prepare hook directory and install hook (Python on Windows)
+    // 1. Prepare hook directory and install hook (native, no file needed)
     let (_hook_dir, hook_path) = prepare_hook_paths()?;
-    let hook_changed = ensure_hook_installed(&hook_path, verbose)?;
+    let _hook_changed = ensure_hook_installed(&hook_path, verbose)?;
 
     // 2. Write RTK.md
     write_if_changed(&rtk_md_path, RTK_SLIM, "RTK.md", verbose)?;
@@ -967,13 +859,8 @@ fn run_default_mode(
     let migrated = patch_claude_md(&claude_md_path, verbose)?;
 
     // 4. Print success message
-    let hook_status = if hook_changed {
-        "installed/updated"
-    } else {
-        "already up to date"
-    };
-    println!("\nRTK hook {} (global).\n", hook_status);
-    println!("  Hook:      {}", hook_path.display());
+    println!("\nRTK hook installed (global).\n");
+    println!("  Hook:      rtk hook claude (built-in)");
     println!("  RTK.md:    {} (10 lines)", rtk_md_path.display());
     if let Some(path) = &opencode_plugin_path {
         println!("  OpenCode:  {}", path.display());
@@ -1046,13 +933,8 @@ fn run_default_mode(
     let migrated = patch_claude_md(&claude_md_path, verbose)?;
 
     // 4. Print success message
-    let hook_status = if hook_changed {
-        "installed/updated"
-    } else {
-        "already up to date"
-    };
-    println!("\nRTK hook {} (global).\n", hook_status);
-    println!("  Hook:      {}", hook_path.display());
+    println!("\nRTK hook installed (global).\n");
+    println!("  Hook:      rtk hook claude (built-in)");
     println!("  RTK.md:    {} (10 lines)", rtk_md_path.display());
     if let Some(path) = &opencode_plugin_path {
         println!("  OpenCode:  {}", path.display());
@@ -1178,13 +1060,8 @@ fn run_hook_only_mode(
         None
     };
 
-    let hook_status = if hook_changed {
-        "installed/updated"
-    } else {
-        "already up to date"
-    };
-    println!("\nRTK hook {} (hook-only mode).\n", hook_status);
-    println!("  Hook: {}", hook_path.display());
+    println!("\nRTK hook installed (hook-only mode).\n");
+    println!("  Hook: rtk hook claude (built-in)");
     if let Some(path) = &opencode_plugin_path {
         println!("  OpenCode: {}", path.display());
     }
@@ -2481,19 +2358,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_hook_has_guards() {
-        assert!(REWRITE_HOOK_SH.contains("command -v rtk"));
-        assert!(REWRITE_HOOK_SH.contains("command -v jq"));
-        // Guards (rtk/jq availability checks) must appear before the actual delegation call.
-        // The thin delegating hook no longer uses set -euo pipefail.
-        let jq_pos = REWRITE_HOOK_SH.find("command -v jq").unwrap();
-        let rtk_delegate_pos = REWRITE_HOOK_SH.find("rtk rewrite \"$CMD\"").unwrap();
-        assert!(
-            jq_pos < rtk_delegate_pos,
-            "Guards must appear before rtk rewrite delegation"
-        );
-    }
+    // Hook guards test removed - hook is now native, no script file
+    // Use `rtk hook claude` directly instead of script files
 
     #[test]
     fn test_migration_removes_old_block() {

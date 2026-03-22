@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo build:*)",
+      "Bash(rtk init:*)",
+      "Bash(rtk gain:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo clean:*)",
+      "Bash(cargo install:*)",
+      "Bash(py \"C:\\\\Users\\\\Roman\\\\.claude\\\\hooks\\\\rtk-rewrite.py\")",
+      "Bash(rtk hook:*)",
+      "Bash(cp \"C:\\\\Users\\\\Roman\\\\.cargo\\\\git\\\\checkouts\\\\rtk-0d10505700d6a51d\\\\c85e348\\\\target\\\\release\\\\rtk.exe\" \"C:\\\\Users\\\\Roman\\\\.cargo\\\\bin\\\\rtk.exe\")",
+      "Bash(rm -f \"C:\\\\Users\\\\Roman\\\\.claude\\\\hooks\\\\rtk-rewrite.py\" \"C:\\\\Users\\\\Roman\\\\.claude\\\\hooks\\\\.rtk-hook.sha256\")",
+      "Bash(\"C:\\\\Users\\\\Roman\\\\.cargo\\\\git\\\\checkouts\\\\rtk-0d10505700d6a51d\\\\c85e348\\\\target\\\\release\\\\rtk.exe\" gain:*)"
+    ]
+  }
+}

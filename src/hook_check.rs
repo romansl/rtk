@@ -16,6 +16,7 @@ pub enum HookStatus {
 
 /// Return the current hook status without printing anything.
 /// Returns `Ok` if no Claude Code is detected (not applicable).
+/// Returns `Ok` for native hook (built into rtk binary).
 pub fn status() -> HookStatus {
     // Don't warn users who don't have Claude Code installed
     let home = match dirs::home_dir() {
@@ -26,17 +27,9 @@ pub fn status() -> HookStatus {
         return HookStatus::Ok;
     }
 
-    let Some(hook_path) = hook_installed_path() else {
-        return HookStatus::Missing;
-    };
-    let Ok(content) = std::fs::read_to_string(&hook_path) else {
-        return HookStatus::Outdated; // exists but unreadable — treat as needs-update
-    };
-    if parse_hook_version(&content) >= CURRENT_HOOK_VERSION {
-        HookStatus::Ok
-    } else {
-        HookStatus::Outdated
-    }
+    // Native hook is built into rtk binary - always available
+    // No file-based check needed
+    HookStatus::Ok
 }
 
 /// Check if the installed hook is missing or outdated, warn once per day.
